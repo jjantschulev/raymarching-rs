@@ -14,6 +14,11 @@ fn main() {
             watch_for_changes: cfg!(debug_assertions),
             ..Default::default()
         })
+        .insert_resource(WindowDescriptor {
+            width: 1200.0,
+            height: 1200.0,
+            ..Default::default()
+        })
         .add_plugins(DefaultPlugins)
         .add_plugin(Material2dPlugin::<PostProcessingMaterial>::default())
         .add_startup_system(setup)
@@ -40,31 +45,30 @@ fn setup(
 ) {
     // Get window size
     let window = windows.get_primary_mut().unwrap();
-    let size = Extent3d {
-        width: window.physical_width(),
-        height: window.physical_height(),
-        ..default()
-    };
+
+    let width = 1800.0;
+    let height = 1800.0;
+    let window_width = window.physical_width() as f32;
+    let window_height = window.physical_height() as f32;
 
     // Create material
     let material_handle = post_processing_materials.add(PostProcessingMaterial {
         pos: Vec3::new(0.0, -10.0, 0.0),
         dir: Vec3::Y,
         focal_len: 1.0,
+        power: 10.0,
     });
     commands.insert_resource(ShaderHandle(material_handle.clone()));
 
     // Create a Quad
-    let mesh = meshes.add(Mesh::from(Quad::new(Vec2::new(
-        size.width as f32,
-        size.height as f32,
-    ))));
+    let mesh = meshes.add(Mesh::from(Quad::new(Vec2::new(width, height))));
 
     commands.spawn_bundle(MaterialMesh2dBundle {
         mesh: mesh.into(),
         material: material_handle,
         transform: Transform {
-            translation: Vec3::new(0.0, 0.0, 1.5),
+            translation: Vec3::new(0.0, 0.0, 1.0),
+            scale: Vec3::new(window_width / width, window_height / height, 1.0),
             ..default()
         },
         ..default()
@@ -80,27 +84,69 @@ fn move_around(
     input: Res<Input<KeyCode>>,
     time: Res<Time>,
 ) {
-    // const SPEED: f32 = 0.4;
-    // const ZOOM_SPEED: f32 = 0.8;
-    // let mut material = post_processing_materials.get_mut(&handle.0).unwrap();
-    // if input.pressed(KeyCode::W) {
-    //     material.pos.y += SPEED * material.zoom * time.delta_seconds();
-    // }
-    // if input.pressed(KeyCode::S) {
-    //     material.pos.y -= SPEED * material.zoom * time.delta_seconds();
-    // }
-    // if input.pressed(KeyCode::A) {
-    //     material.pos.x += SPEED * material.zoom * time.delta_seconds();
-    // }
-    // if input.pressed(KeyCode::D) {
-    //     material.pos.x -= SPEED * material.zoom * time.delta_seconds();
-    // }
-    // if input.pressed(KeyCode::Up) {
-    //     material.zoom *= 1.0 - (ZOOM_SPEED * time.delta_seconds());
-    // }
-    // if input.pressed(KeyCode::Down) {
-    //     material.zoom *= 1.0 + (ZOOM_SPEED * time.delta_seconds());
-    // }
+    const SPEED: f32 = 1.0;
+    const TURN_SPEED: f32 = 1.0;
+    const FOCAL_ZOOM: f32 = 0.5;
+    const POWER_SPEED: f32 = 1.0;
+    let mut material = post_processing_materials.get_mut(&handle.0).unwrap();
+    let dt = time.delta_seconds();
+
+    // Change power
+    if input.pressed(KeyCode::Home) {
+        material.power += POWER_SPEED * dt;
+    }
+    if input.pressed(KeyCode::End) {
+        material.power -= POWER_SPEED * dt;
+    }
+
+    // Move camera
+    if input.pressed(KeyCode::W) {
+        material.pos.y += SPEED * dt;
+    }
+    if input.pressed(KeyCode::S) {
+        material.pos.y -= SPEED * dt;
+    }
+    if input.pressed(KeyCode::A) {
+        material.pos.x += SPEED * dt;
+    }
+    if input.pressed(KeyCode::D) {
+        material.pos.x -= SPEED * dt;
+    }
+    if input.pressed(KeyCode::R) {
+        material.pos.z += SPEED * dt;
+    }
+    if input.pressed(KeyCode::F) {
+        material.pos.z -= SPEED * dt;
+    }
+
+    // Change camera zoom
+    if input.pressed(KeyCode::PageUp) {
+        material.focal_len += FOCAL_ZOOM * dt;
+    }
+    if input.pressed(KeyCode::PageDown) {
+        material.focal_len -= FOCAL_ZOOM * dt;
+    }
+
+    // Look around
+    let mut theta = material.dir.z.acos();
+    let mut phi = (material.dir.y / theta.sin()).asin();
+
+    if input.pressed(KeyCode::Left) {
+        phi += TURN_SPEED * dt;
+    }
+    if input.pressed(KeyCode::Right) {
+        phi -= TURN_SPEED * dt;
+    }
+    if input.pressed(KeyCode::Up) {
+        theta += TURN_SPEED * dt;
+    }
+    if input.pressed(KeyCode::Down) {
+        theta -= TURN_SPEED * dt;
+    }
+
+    material.dir.x = theta.sin() * phi.cos();
+    material.dir.y = theta.sin() * phi.sin();
+    material.dir.z = theta.cos();
 }
 
 #[derive(AsBindGroup, TypeUuid, Clone)]
@@ -112,8 +158,8 @@ struct PostProcessingMaterial {
     dir: Vec3,
     #[uniform(2)]
     focal_len: f32,
-    // #[uniform(3)]
-    // up: Vec3,
+    #[uniform(3)]
+    power: f32,
 }
 
 impl Material2d for PostProcessingMaterial {
